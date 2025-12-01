@@ -288,7 +288,6 @@ class GlobalRoutePlanner(object):
         return np.linalg.norm(l1-l2)
     
 
-    """
     def astar_path(self, G, source, target, heuristic=None, weight="weight"):
 
         if source not in G:
@@ -330,7 +329,9 @@ class GlobalRoutePlanner(object):
                 path = [curnode]
                 node = parent
                 while node is not None:
-                    ##TODO##
+                    path.append(node)
+                    node = explored[node]
+                path.reverse()
                 return path
 
             if curnode in explored:
@@ -350,14 +351,16 @@ class GlobalRoutePlanner(object):
                 if cost is None:
                     continue
                 ncost = dist + cost
-                ##TODO##
-
-
-                ##TODO##
+                if neighbor in enqueued:
+                    qcost, h = enqueued[neighbor]
+                    if qcost <= ncost:
+                        continue
+                else:
+                    h = heuristic(neighbor, target)
+                enqueued[neighbor] = ncost, h
                 push(queue, (ncost + h, next(c), neighbor, ncost, curnode))
 
         raise nx.NetworkXNoPath(f"Node {target} not reachable from {source}")
-        """
     
     def _path_search(self, origin, destination):
         """
@@ -370,14 +373,14 @@ class GlobalRoutePlanner(object):
         """
         start, end = self._localize(origin), self._localize(destination)
 
-        route = nx.astar_path(
-            self._graph, source=start[0], target=end[0],
-            heuristic=self._distance_heuristic, weight='length')
-        #Once you have completed the astar_path method above, comment the line above to call your method instead of the default one.
-
-        #route = self.astar_path(
+        #route = nx.astar_path(
         #    self._graph, source=start[0], target=end[0],
         #    heuristic=self._distance_heuristic, weight='length')
+        #Once you have completed the astar_path method above, comment the line above to call your method instead of the default one.
+
+        route = self.astar_path(
+            self._graph, source=start[0], target=end[0],
+            heuristic=self._distance_heuristic, weight='length')
         route.append(end[1])
         return route
 
