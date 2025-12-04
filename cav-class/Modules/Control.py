@@ -57,13 +57,13 @@ class PIDLongitudinalController():
 
         ###################### TODO ######################
         if len(self._error_buffer) >= 2:
-            _de = ##TODO
-            _ie = ##TODO
+            _de = (self._error_buffer[-1] - self._error_buffer[-2]) / self._dt
+            _ie = sum(self._error_buffer) * self._dt
         else:
             _de = 0.0
             _ie = 0.0
         
-        control = ##TODO
+        control = (self._k_p * error) + (self._k_i * _ie) + (self._k_d * _de)
  
         return np.clip(control, -1.0, 1.0)
         ###################### TODO ######################
@@ -146,24 +146,23 @@ class PIDLateralController():
         if wv_linalg == 0:
             _dot = 1
         else:
-            _dot = ##TODO
+            _dot = np.dot(w_vec, v_vec) / wv_linalg 
 
-        _cross = ##TODO
+        _cross = np.cross(v_vec, w_vec)[-1]
 
         #change the sign of the dot product depending on whether we are turning left or right
-        
-        ##TODO
- 
+        if _cross < 0:
+            _dot *= -1 
         self._e_buffer.append(_dot)
 
         if len(self._e_buffer) >= 2:
-            _de = ##TODO
-            _ie = ##TODO
+            _de = (self._e_buffer[-1] - self._e_buffer[-2]) / self._dt
+            _ie = sum(self._e_buffer) * self._dt
         else:
             _de = 0.0
             _ie = 0.0
 
-        control = ##TODO
+        control = (self._k_p * _dot) + (self._k_i * _ie) + (self._k_d * _de)
  
         return np.clip(control, -1.0, 1.0)
         ###################### TODO ######################
