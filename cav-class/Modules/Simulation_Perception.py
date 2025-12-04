@@ -714,8 +714,9 @@ class CameraManager(object):
 
             ############# pass the camera images (contained in array) through our model to draw the bounding boxes #############
             
-            result = ##TODO##
-            array = ##TODO##
+            results = self.model(array, verbose=False)
+            result = results[0] 
+            array = result[0].plot()
             self.result = result.to_df() ##convert the results to a dataframe format
             ###############################################################################################
             
