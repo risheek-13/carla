@@ -146,7 +146,7 @@ class PIDLateralController():
         if wv_linalg == 0:
             _dot = 1
         else:
-            _dot = np.dot(w_vec, v_vec) / wv_linalg 
+            _dot = math.acos(np.dot(w_vec, v_vec) / wv_linalg)
 
         _cross = np.cross(v_vec, w_vec)[-1]
 
