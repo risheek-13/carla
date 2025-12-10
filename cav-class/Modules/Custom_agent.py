@@ -9,6 +9,10 @@ waypoints and avoiding other vehicles. The agent also responds to traffic lights
 traffic signs, and has different possible configurations. """
 
 import random
+try:
+    import polars as pl
+except ImportError:
+    pl = None
 import numpy as np
 import pandas as pd
 from shapely.geometry import Polygon
