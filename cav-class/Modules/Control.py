@@ -56,6 +56,7 @@ class PIDLongitudinalController():
         self._error_buffer.append(error)
 
         ###################### TODO ######################
+        # Compute integral and differential components
         if len(self._error_buffer) >= 2:
             _de = (self._error_buffer[-1] - self._error_buffer[-2]) / self._dt
             _ie = sum(self._error_buffer) * self._dt
@@ -142,6 +143,7 @@ class PIDLateralController():
                           0.0])
         
         ###################### TODO ######################
+        # Compute the cross and dot products between the two vectors
         wv_linalg = np.linalg.norm(w_vec) * np.linalg.norm(v_vec)
         if wv_linalg == 0:
             _dot = 1
@@ -150,7 +152,7 @@ class PIDLateralController():
 
         _cross = np.cross(v_vec, w_vec)[-1]
 
-        #change the sign of the dot product depending on whether we are turning left or right
+        # change the sign of the dot product depending on whether we are turning left or right
         if _cross < 0:
             _dot *= -1 
         self._e_buffer.append(_dot)
@@ -265,5 +267,6 @@ class VehiclePIDController():
     def set_offset(self, offset):
         """Changes the offset"""
         self._lat_controller.set_offset(offset)
+
 
 
