@@ -73,7 +73,26 @@ from agents.navigation.constant_velocity_agent import ConstantVelocityAgent  # p
 # ==============================================================================
 # -- Global functions ----------------------------------------------------------
 # ==============================================================================
+# def draw_route(world, route):
+#     for i in range(len(route)-1):
+#         wp1 = route[i][0].transform.location
+#         wp2 = route[i+1][0].transform.location
 
+#         # draw line
+#         world.debug.draw_line(
+#             wp1, wp2,
+#             thickness=0.1,
+#             color=carla.Color(0,0, 0),
+#             life_time=0
+#         )
+
+#         # draw waypoint dot
+#         world.debug.draw_point(
+#             wp1,
+#             size=0.1,
+#             color=carla.Color(0, 0, 0),
+#             life_time=0
+#         )
 
 def find_weather_presets():
     """Method to find weather presets"""
@@ -791,6 +810,8 @@ def game_loop(args):
         spawn_points = world.map.get_spawn_points()
         destination = random.choice(spawn_points).location
         agent.set_destination(destination)
+        # route = list(agent.get_local_planner()._waypoints_queue)
+        # draw_route(world.world, route)
 
         clock = pygame.time.Clock()
 
