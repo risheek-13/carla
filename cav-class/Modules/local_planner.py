@@ -79,8 +79,13 @@ class LocalPlanner(object):
         self._target_speed = 20.0  # Km/h
         self._sampling_radius = 2.0
         # Modify these dict to change the PID parameters
-        self._args_lateral_dict = {'K_P': 0.6, 'K_I': 0.5, 'K_D': 0.2, 'dt': self._dt}
-        self._args_longitudinal_dict = {'K_P': 1.0, 'K_I': 0.5, 'K_D': 1, 'dt': self._dt}
+        # self._args_lateral_dict = {'K_P': 1.95, 'K_I': 0.05, 'K_D': 2, 'dt': self._dt} # Original
+        # self._args_lateral_dict = {'K_P': 0.7, 'K_I': 0.05, 'K_D': 0.5, 'dt': self._dt} # Risheek
+        # self._args_lateral_dict = {'K_P': 0.6, 'K_I': 0.5, 'K_D': 0.2, 'dt': self._dt} # Praveen
+        self._args_lateral_dict = {'K_P': 0.5, 'K_I': 0.01, 'K_D': 0.1, 'dt': self._dt} # Best Article
+        # self._args_longitudinal_dict = {'K_P': 0.2, 'K_I': 0.01, 'K_D': 0.3, 'dt': self._dt} # Article
+        # self._args_longitudinal_dict = {'K_P': 1.0, 'K_I': 0.5, 'K_D': 1, 'dt': self._dt} # Original
+        self._args_longitudinal_dict = {'K_P': 2, 'K_I': 0.1, 'K_D': 0.7, 'dt': self._dt} # Best Risheek
 
         self._max_throt = 0.75
         self._max_brake = 0.3
