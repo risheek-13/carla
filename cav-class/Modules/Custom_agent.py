@@ -9,10 +9,6 @@ waypoints and avoiding other vehicles. The agent also responds to traffic lights
 traffic signs, and has different possible configurations. """
 
 import random
-try:
-    import polars as pl
-except ImportError:
-    pl = None
 import numpy as np
 import pandas as pd
 from shapely.geometry import Polygon
@@ -513,8 +509,21 @@ class CustomAgent(BasicAgent):
         :param debug: boolean for debugging
         :return control: carla.VehicleControl
         """
-        if not perception_results.empty:
-            self._update_perception_information(perception_results=perception_results)
+        # Robustly handle different perception_results types
+        if perception_results is not None:
+            # If true pandas DataFrame and not empty
+            if isinstance(perception_results, pd.DataFrame):
+                if not perception_results.empty:
+                    self._update_perception_information(perception_results=perception_results)
+        else:
+            # For any other type (e.g., list, custom class from camera_manager)
+            # Only update if it is truthy / non-empty
+            try:
+                if perception_results:
+                    self._update_perception_information(perception_results=perception_results)
+            except Exception:
+                # Last resort: always accept non-None perception_results
+                self._update_perception_information(perception_results=perception_results)
 
         self._update_information()
 
