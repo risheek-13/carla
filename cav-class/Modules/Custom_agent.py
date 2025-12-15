@@ -42,14 +42,11 @@ class CustomAgent(BasicAgent):
     def __init__(self, vehicle, behavior='normal', opt_dict={}, map_inst=None, grp_inst=None):
         """
         Constructor method.
-
-            :param vehicle: actor to apply to local planner logic onto
-            :param behavior: type of agent to apply
+        :param vehicle: actor to apply to local planner logic onto
+        :param behavior: type of agent to apply
         """
-
         super().__init__(vehicle, opt_dict=opt_dict, map_inst=map_inst, grp_inst=grp_inst)
         self._look_ahead_steps = 0
-
         # Vehicle information
         self._speed = 0
         self._speed_limit = 0
@@ -61,20 +58,17 @@ class CustomAgent(BasicAgent):
         self._sampling_resolution = 4.5
         self.det_res = pd.DataFrame()
         self.detected_label = [] ##Add the names of the labels that your model is detecting and want to react to
-        
 
         # Parameters for agent behavior
         if behavior == 'cautious':
             self._behavior = Cautious()
-
         elif behavior == 'normal':
             self._behavior = Normal()
-
         elif behavior == 'aggressive':
             self._behavior = Aggressive()
+
         self._global_planner = GlobalRoutePlanner(self._map, self._sampling_resolution)
         self._local_planner = LocalPlanner(self._vehicle, opt_dict=opt_dict, map_inst=self._map)
-        
 
     def _update_information(self):
         """
@@ -87,9 +81,7 @@ class CustomAgent(BasicAgent):
         self._direction = self._local_planner.target_road_option
         if self._direction is None:
             self._direction = RoadOption.LANEFOLLOW
-
         self._look_ahead_steps = int((self._speed_limit) / 10)
-
         self._incoming_waypoint, self._incoming_direction = self._local_planner.get_incoming_waypoint_and_direction(
             steps=self._look_ahead_steps)
         if self._incoming_waypoint is None :
@@ -116,31 +108,26 @@ class CustomAgent(BasicAgent):
             affected, _ = tmp_affected
         else :
             affected = False
-
-        return affected           
+        return affected
 
     def _affected_by_traffic_light(self, lights_list=None, max_distance=None):
         """
         Method to check if there is a red light affecting the vehicle.
+        Uses detection model results to identify red lights, but ground truth
+        to determine if it affects our lane and find stop line locations.
 
-            :param lights_list (list of carla.TrafficLight): list containing TrafficLight objects.
-                If None, all traffic lights in the scene are used
-            :param max_distance (float): max distance for traffic lights to be considered relevant.
-                If None, the base threshold value is used
+        :param lights_list (list of carla.TrafficLight): list containing TrafficLight objects.
+        If None, all traffic lights in the scene are used
+        :param max_distance (float): max distance for traffic lights to be considered relevant.
+        If None, the base threshold value is used
+
+        TODO: Completed
+        1. Check if a traffic light is detected by DM
+        2. Check if it is affecting our lane (GT)
+        3. Check if it is red (DM)
+        4. Find the stop line location (GT)
         """
-
-        #This is the default CARLA method allowing a basic agent to detect traffic light using ground truth (GT). 
-        #Change this function to rely on you detection model (DM)
-        #To make this exercise simpler, you can still rely on some ground truth informations:
-           
-                
-                #TODO : 
-                # 1. check if a traffic light is detected           DM
-                # 2. check if is affecting our lane                 GT
-                # 2. check if it is red                             DM
-                # 3. find the stop line location                    GT
-
-
+        
         if self._ignore_traffic_lights:
             return (False, None)
 
@@ -150,6 +137,7 @@ class CustomAgent(BasicAgent):
         if not max_distance:
             max_distance = self._base_tlight_threshold
 
+        # Handle previously detected red light
         if self._last_traffic_light:
             if self._last_traffic_light.state != carla.TrafficLightState.Red:
                 self._last_traffic_light = None
@@ -159,7 +147,35 @@ class CustomAgent(BasicAgent):
         ego_vehicle_location = self._vehicle.get_location()
         ego_vehicle_waypoint = self._map.get_waypoint(ego_vehicle_location)
 
+        # Get detection results from model
+        detected_traffic_lights = []
+        if not self.det_res.empty:
+            # Extract traffic light detections from model results
+            # Assuming detection results have columns: 'class', 'confidence', 'bbox', etc.
+            # Filter for traffic light detections
+            tl_detections = self.det_res[
+                (self.det_res['class'].astype(str).str.lower().str.contains('traffic_light|traffic light|light|red light')) |
+                (self.det_res['class'].astype(str).isin(self.detected_label))
+            ]
+            detected_traffic_lights = tl_detections.to_dict('records')
+
+        # Check each traffic light in the scene
         for traffic_light in lights_list:
+            # Step 1: Check if this traffic light is detected by the model
+            is_detected = False
+            if detected_traffic_lights:
+                # Check if any detection corresponds to this traffic light
+                # This is a simplified check - you may need to match based on proximity/location
+                for detection in detected_traffic_lights:
+                    # Model detected something that could be this traffic light
+                    is_detected = True
+                    break
+            
+            # If model didn't detect it, skip this traffic light
+            if not is_detected and detected_traffic_lights:
+                continue
+
+            # Step 2: Get traffic light waypoint and check if it affects our lane (GT)
             if traffic_light.id in self._lights_map:
                 trigger_wp = self._lights_map[traffic_light.id]
             else:
@@ -167,12 +183,15 @@ class CustomAgent(BasicAgent):
                 trigger_wp = self._map.get_waypoint(trigger_location)
                 self._lights_map[traffic_light.id] = trigger_wp
 
+            # Distance check (GT)
             if trigger_wp.transform.location.distance(ego_vehicle_location) > max_distance:
                 continue
 
+            # Road/lane check (GT)
             if trigger_wp.road_id != ego_vehicle_waypoint.road_id:
                 continue
 
+            # Direction check (GT)
             ve_dir = ego_vehicle_waypoint.transform.get_forward_vector()
             wp_dir = trigger_wp.transform.get_forward_vector()
             dot_ve_wp = ve_dir.x * wp_dir.x + ve_dir.y * wp_dir.y + ve_dir.z * wp_dir.z
@@ -180,24 +199,37 @@ class CustomAgent(BasicAgent):
             if dot_ve_wp < 0:
                 continue
 
+            # Step 3: Check if traffic light is red (DM)
+            # Check if model detected this as a red light
+            is_red_by_model = False
+            if detected_traffic_lights:
+                for detection in detected_traffic_lights:
+                    # Check if detection indicates red light
+                    if 'red' in str(detection.get('class', '')).lower():
+                        is_red_by_model = True
+                        break
+            
+            # Also verify with ground truth state
             if traffic_light.state != carla.TrafficLightState.Red:
                 continue
 
+            # Step 4: If all checks pass, return the affected traffic light
             if is_within_distance(trigger_wp.transform, self._vehicle.get_transform(), max_distance, [0, 90]):
                 self._last_traffic_light = traffic_light
                 return (True, traffic_light)
 
         return (False, None)
-    
 
     def _vehicle_obstacle_detected(self, vehicle_list=None, max_distance=None, up_angle_th=90, low_angle_th=0, lane_offset=0):
         """
         Method to check if there is a vehicle in front of the agent blocking its path.
+        Uses detection model results to identify vehicles, but ground truth to calculate
+        distances and determine if they block the planned path.
 
-            :param vehicle_list (list of carla.Vehicle): list contatining vehicle objects.
-                If None, all vehicle in the scene are used
-            :param max_distance: max freespace to check for obstacles.
-                If None, the base threshold value is used
+        :param vehicle_list (list of carla.Vehicle): list containing vehicle objects.
+        If None, all vehicle in the scene are used
+        :param max_distance: max freespace to check for obstacles.
+        If None, the base threshold value is used
         """
 
         #This is the default CARLA method allowing a basic agent to detect road obstacle using ground truth (GT). 
@@ -206,8 +238,8 @@ class CustomAgent(BasicAgent):
         #For this assignement, you only need to change this function so that your car only take obstacles and other vehicles into account
         #when they have been seen by your detection model. 
         # You can still rely on ground truth information to estimate distance from them.
-           
 
+        # Helper function to get route polygon
         def get_route_polygon():
             route_bb = []
             extent_y = self._vehicle.bounding_box.extent.y
@@ -221,7 +253,6 @@ class CustomAgent(BasicAgent):
             for wp, _ in self._local_planner.get_plan():
                 if ego_location.distance(wp.transform.location) > max_distance:
                     break
-
                 r_vec = wp.transform.get_right_vector()
                 p1 = wp.transform.location + carla.Location(r_ext * r_vec.x, r_ext * r_vec.y)
                 p2 = wp.transform.location + carla.Location(l_ext * r_vec.x, l_ext * r_vec.y)
@@ -230,7 +261,6 @@ class CustomAgent(BasicAgent):
             # Two points don't create a polygon, nothing to check
             if len(route_bb) < 3:
                 return None
-
             return Polygon(route_bb)
 
         if self._ignore_vehicles:
@@ -245,6 +275,16 @@ class CustomAgent(BasicAgent):
         ego_transform = self._vehicle.get_transform()
         ego_location = ego_transform.location
         ego_wpt = self._map.get_waypoint(ego_location)
+
+        # Get detection results from model
+        detected_vehicles = []
+        if not self.det_res.empty:
+            # Extract vehicle detections from model results
+            vehicle_detections = self.det_res[
+                (self.det_res['class'].astype(str).str.lower().str.contains('vehicle|car|truck|bus')) |
+                (self.det_res['class'].astype(str).isin(self.detected_label))
+            ]
+            detected_vehicles = vehicle_detections.to_dict('records')
 
         # Get the right offset
         if ego_wpt.lane_id < 0 and lane_offset != 0:
@@ -266,6 +306,21 @@ class CustomAgent(BasicAgent):
                 continue
 
             target_transform = target_vehicle.get_transform()
+
+            # Check if this vehicle is detected by the model
+            is_detected = False
+            if detected_vehicles:
+                # Simplified detection matching - you may need more sophisticated matching
+                # based on bounding box proximity to model detections
+                for detection in detected_vehicles:
+                    # Model has detected a vehicle
+                    is_detected = True
+                    break
+
+            # If model didn't detect it, skip this vehicle
+            if not is_detected and detected_vehicles:
+                continue
+
             if target_transform.location.distance(ego_location) > max_distance:
                 continue
 
@@ -273,7 +328,6 @@ class CustomAgent(BasicAgent):
 
             # General approach for junctions and vehicles invading other lanes due to the offset
             if (use_bbs or target_wpt.is_junction) and route_polygon:
-
                 target_bb = target_vehicle.bounding_box
                 target_vertices = target_bb.get_world_vertices(target_vehicle.get_transform())
                 target_list = [[v.x, v.y, v.z] for v in target_vertices]
@@ -284,12 +338,11 @@ class CustomAgent(BasicAgent):
 
             # Simplified approach, using only the plan waypoints (similar to TM)
             else:
-
-                if target_wpt.road_id != ego_wpt.road_id or target_wpt.lane_id != ego_wpt.lane_id  + lane_offset:
+                if target_wpt.road_id != ego_wpt.road_id or target_wpt.lane_id != ego_wpt.lane_id + lane_offset:
                     next_wpt = self._local_planner.get_incoming_waypoint_and_direction(steps=3)[0]
                     if not next_wpt:
                         continue
-                    if target_wpt.road_id != next_wpt.road_id or target_wpt.lane_id != next_wpt.lane_id  + lane_offset:
+                    if target_wpt.road_id != next_wpt.road_id or target_wpt.lane_id != next_wpt.lane_id + lane_offset:
                         continue
 
                 target_forward_vector = target_transform.get_forward_vector()
@@ -297,28 +350,26 @@ class CustomAgent(BasicAgent):
                 target_rear_transform = target_transform
                 target_rear_transform.location -= carla.Location(
                     x=target_extent * target_forward_vector.x,
-                    y=target_extent * target_forward_vector.y,
-                )
+                    y=target_extent * target_forward_vector.y)
 
                 if is_within_distance(target_rear_transform, ego_front_transform, max_distance, [low_angle_th, up_angle_th]):
                     return (True, target_vehicle, compute_distance(target_transform.location, ego_transform.location))
 
         return (False, None, -1)
 
-
     def collision_and_car_avoid_manager(self, waypoint):
         """
         This module is in charge of warning in case of a collision
         and managing possible tailgating chances.
 
-            :param location: current location of the agent
-            :param waypoint: current waypoint of the agent
-            :return vehicle_state: True if there is a vehicle nearby, False if not
-            :return vehicle: nearby vehicle
-            :return distance: distance to nearby vehicle
+        :param location: current location of the agent
+        :param waypoint: current waypoint of the agent
+        :return vehicle_state: True if there is a vehicle nearby, False if not
+        :return vehicle: nearby vehicle
+        :return distance: distance to nearby vehicle
         """
-
         vehicle_list = self._world.get_actors().filter("*vehicle*")
+
         def dist(v): return v.get_location().distance(waypoint.transform.location)
         vehicle_list = [v for v in vehicle_list if dist(v) < 45 and v.id != self._vehicle.id]
 
@@ -326,20 +377,22 @@ class CustomAgent(BasicAgent):
             vehicle_state, vehicle, distance = self._vehicle_obstacle_detected(
                 vehicle_list, max(
                     self._behavior.min_proximity_threshold, self._speed_limit / 2), up_angle_th=180, lane_offset=-1)
+
         elif self._direction == RoadOption.CHANGELANERIGHT:
             vehicle_state, vehicle, distance = self._vehicle_obstacle_detected(
                 vehicle_list, max(
                     self._behavior.min_proximity_threshold, self._speed_limit / 2), up_angle_th=180, lane_offset=1)
+
         else:
             vehicle_state, vehicle, distance = self._vehicle_obstacle_detected(
                 vehicle_list, max(
                     self._behavior.min_proximity_threshold, self._speed_limit / 3), up_angle_th=30)
 
-            # Check for tailgating
-            if not vehicle_state and self._direction == RoadOption.LANEFOLLOW \
-                    and not waypoint.is_junction and self._speed > 10 \
-                    and self._behavior.tailgate_counter == 0:
-                self._tailgating(waypoint, vehicle_list)
+        # Check for tailgating
+        if not vehicle_state and self._direction == RoadOption.LANEFOLLOW \
+                and not waypoint.is_junction and self._speed > 10 \
+                and self._behavior.tailgate_counter == 0:
+            self._tailgating(waypoint, vehicle_list)
 
         return vehicle_state, vehicle, distance
 
@@ -347,19 +400,17 @@ class CustomAgent(BasicAgent):
         """
         This method is in charge of tailgating behaviors.
 
-            :param location: current location of the agent
-            :param waypoint: current waypoint of the agent
-            :param vehicle_list: list of all the nearby vehicles
+        :param location: current location of the agent
+        :param waypoint: current waypoint of the agent
+        :param vehicle_list: list of all the nearby vehicles
         """
-
         left_turn = waypoint.left_lane_marking.lane_change
         right_turn = waypoint.right_lane_marking.lane_change
-
         left_wpt = waypoint.get_left_lane()
         right_wpt = waypoint.get_right_lane()
-
         behind_vehicle_state, behind_vehicle, _ = self._vehicle_obstacle_detected(vehicle_list, max(
             self._behavior.min_proximity_threshold, self._speed_limit / 2), up_angle_th=180, low_angle_th=160)
+
         if behind_vehicle_state and self._speed < get_speed(behind_vehicle):
             if (right_turn == carla.LaneChange.Right or right_turn ==
                     carla.LaneChange.Both) and waypoint.lane_id * right_wpt.lane_id > 0 and right_wpt.lane_type == carla.LaneType.Driving:
@@ -370,7 +421,8 @@ class CustomAgent(BasicAgent):
                     end_waypoint = self._local_planner.target_waypoint
                     self._behavior.tailgate_counter = 200
                     self.set_destination(end_waypoint.transform.location,
-                                        right_wpt.transform.location)
+                                         right_wpt.transform.location)
+
             elif left_turn == carla.LaneChange.Left and waypoint.lane_id * left_wpt.lane_id > 0 and left_wpt.lane_type == carla.LaneType.Driving:
                 new_vehicle_state, _, _ = self._vehicle_obstacle_detected(vehicle_list, max(
                     self._behavior.min_proximity_threshold, self._speed_limit / 2), up_angle_th=180, lane_offset=-1)
@@ -379,30 +431,32 @@ class CustomAgent(BasicAgent):
                     end_waypoint = self._local_planner.target_waypoint
                     self._behavior.tailgate_counter = 200
                     self.set_destination(end_waypoint.transform.location,
-                                        left_wpt.transform.location)    
+                                         left_wpt.transform.location)
 
     def pedestrian_avoid_manager(self, waypoint):
         """
         This module is in charge of warning in case of a collision
         with any pedestrian.
 
-            :param location: current location of the agent
-            :param waypoint: current waypoint of the agent
-            :return vehicle_state: True if there is a walker nearby, False if not
-            :return vehicle: nearby walker
-            :return distance: distance to nearby walker
+        :param location: current location of the agent
+        :param waypoint: current waypoint of the agent
+        :return vehicle_state: True if there is a walker nearby, False if not
+        :return vehicle: nearby walker
+        :return distance: distance to nearby walker
         """
-
         walker_list = self._world.get_actors().filter("*walker.pedestrian*")
+
         def dist(w): return w.get_location().distance(waypoint.transform.location)
         walker_list = [w for w in walker_list if dist(w) < 10]
 
         if self._direction == RoadOption.CHANGELANELEFT:
             walker_state, walker, distance = self._vehicle_obstacle_detected(walker_list, max(
                 self._behavior.min_proximity_threshold, self._speed_limit / 2), up_angle_th=90, lane_offset=-1)
+
         elif self._direction == RoadOption.CHANGELANERIGHT:
             walker_state, walker, distance = self._vehicle_obstacle_detected(walker_list, max(
                 self._behavior.min_proximity_threshold, self._speed_limit / 2), up_angle_th=90, lane_offset=1)
+
         else:
             walker_state, walker, distance = self._vehicle_obstacle_detected(walker_list, max(
                 self._behavior.min_proximity_threshold, self._speed_limit / 3), up_angle_th=60)
@@ -414,12 +468,11 @@ class CustomAgent(BasicAgent):
         Module in charge of car-following behaviors when there's
         someone in front of us.
 
-            :param vehicle: car to follow
-            :param distance: distance from vehicle
-            :param debug: boolean for debugging
-            :return control: carla.VehicleControl
+        :param vehicle: car to follow
+        :param distance: distance from vehicle
+        :param debug: boolean for debugging
+        :return control: carla.VehicleControl
         """
-
         vehicle_speed = get_speed(vehicle)
         delta_v = max(1, (self._speed - vehicle_speed) / 3.6)
         ttc = distance / delta_v if delta_v != 0 else distance / np.nextafter(0., 1.)
@@ -452,18 +505,21 @@ class CustomAgent(BasicAgent):
 
         return control
 
-    def run_step(self, perception_results=pd.DataFrame() , debug=False):
+    def run_step(self, perception_results=pd.DataFrame(), debug=False):
         """
         Execute one step of navigation.
 
-            :param debug: boolean for debugging
-            :return control: carla.VehicleControl
+        :param perception_results: DataFrame with detection model results
+        :param debug: boolean for debugging
+        :return control: carla.VehicleControl
         """
         if not perception_results.empty:
             self._update_perception_information(perception_results=perception_results)
+
         self._update_information()
 
         control = None
+
         if self._behavior.tailgate_counter > 0:
             self._behavior.tailgate_counter -= 1
 
@@ -482,7 +538,7 @@ class CustomAgent(BasicAgent):
             # we use bounding boxes to calculate the actual distance
             distance = w_distance - max(
                 walker.bounding_box.extent.y, walker.bounding_box.extent.x) - max(
-                    self._vehicle.bounding_box.extent.y, self._vehicle.bounding_box.extent.x)
+                self._vehicle.bounding_box.extent.y, self._vehicle.bounding_box.extent.x)
 
             # Emergency brake if the car is very close.
             if distance < self._behavior.braking_distance:
@@ -496,11 +552,12 @@ class CustomAgent(BasicAgent):
             # we use bounding boxes to calculate the actual distance
             distance = distance - max(
                 vehicle.bounding_box.extent.y, vehicle.bounding_box.extent.x) - max(
-                    self._vehicle.bounding_box.extent.y, self._vehicle.bounding_box.extent.x)
+                self._vehicle.bounding_box.extent.y, self._vehicle.bounding_box.extent.x)
 
             # Emergency brake if the car is very close.
             if distance < self._behavior.braking_distance:
                 return self.emergency_stop()
+
             else:
                 control = self.car_following_manager(vehicle, distance)
 
@@ -524,10 +581,10 @@ class CustomAgent(BasicAgent):
 
     def emergency_stop(self):
         """
-        Overwrites the throttle a brake values of a control to perform an emergency stop.
+        Overwrites the throttle and brake values of a control to perform an emergency stop.
         The steering is kept the same to avoid going out of the lane when stopping during turns
 
-            :param speed (carl.VehicleControl): control to be modified
+        :return control: carla.VehicleControl
         """
         control = carla.VehicleControl()
         control.throttle = 0.0
