@@ -154,6 +154,7 @@ class CustomAgent(BasicAgent):
                 (self.det_res['class'].astype(str).isin(self.detected_label))
             ]
             detected_traffic_lights = tl_detections.to_dict('records')
+            print(f"Detected traffic lights by model: {detected_traffic_lights}")
 
         # Check each traffic light in the scene
         for traffic_light in lights_list:
@@ -202,12 +203,13 @@ class CustomAgent(BasicAgent):
                 for detection in detected_traffic_lights:
                     # Check if detection indicates red light
                     if 'red' in str(detection.get('class', '')).lower():
+                        print("Traffic light detected as RED by model.")
                         is_red_by_model = True
                         break
             
-            # Also verify with ground truth state
-            if traffic_light.state != carla.TrafficLightState.Red:
-                continue
+            # # Also verify with ground truth state
+            # if traffic_light.state != carla.TrafficLightState.Red:
+            #     continue
 
             # Step 4: If all checks pass, return the affected traffic light
             if is_within_distance(trigger_wp.transform, self._vehicle.get_transform(), max_distance, [0, 90]):
