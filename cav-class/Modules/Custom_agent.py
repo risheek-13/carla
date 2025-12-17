@@ -125,7 +125,7 @@ class CustomAgent(BasicAgent):
         """
         
         light_labels = ['traffic_light', 'red_light', 'green_light', 'yellow_light']
-        print("Detections from the model:\n", self.det_res)
+        # print("Detections from the model:\n", self.det_res)
 
         # ---------------- 1. DM: any traffic light detected? ----------------
         if self.det_res is None or self.det_res.empty:
@@ -482,6 +482,7 @@ class CustomAgent(BasicAgent):
         :param debug: boolean for debugging
         :return control: carla.VehicleControl
         """
+        print(perception_results)
         # Robustly handle different perception_results types
         if perception_results is not None:
             # If true pandas DataFrame and not empty
