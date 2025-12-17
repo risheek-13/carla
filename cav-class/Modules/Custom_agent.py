@@ -124,55 +124,40 @@ class CustomAgent(BasicAgent):
         4. Find the stop line location (GT)
         """
         
+        light_labels = ['traffic_light', 'red_light', 'green_light', 'yellow_light']
+        print("Detections from the model:\n", self.det_res)
+
+        # ---------------- 1. DM: any traffic light detected? ----------------
+        if self.det_res is None or self.det_res.empty:
+            return (False, None)
+
+        if 'name' not in self.det_res.columns:
+            return (False, None)
+
+        tl_df = self.det_res[self.det_res['name'].isin(light_labels)]
+        if tl_df.empty:
+            return (False, None)
+
+        # ---------------- 2. DM: is it RED? ----------------
+        red_df = tl_df[tl_df['name'] == 'red_light']
+        if red_df.empty:
+            return (False, None)
+
         if self._ignore_traffic_lights:
             return (False, None)
 
+        # ---------------- 3. GT: geometry & relevance ----------------
         if not lights_list:
             lights_list = self._world.get_actors().filter("*traffic_light*")
 
         if not max_distance:
             max_distance = self._base_tlight_threshold
 
-        # Handle previously detected red light
-        if self._last_traffic_light:
-            if self._last_traffic_light.state != carla.TrafficLightState.Red:
-                self._last_traffic_light = None
-            else:
-                return (True, self._last_traffic_light)
-
         ego_vehicle_location = self._vehicle.get_location()
         ego_vehicle_waypoint = self._map.get_waypoint(ego_vehicle_location)
 
-        # Get detection results from model
-        detected_traffic_lights = []
-        if not self.det_res.empty:
-            # Extract traffic light detections from model results
-            # Assuming detection results have columns: 'class', 'confidence', 'bbox', etc.
-            # Filter for traffic light detections
-            tl_detections = self.det_res[
-                (self.det_res['class'].astype(str).str.lower().str.contains('traffic_light|traffic light|light|red light')) |
-                (self.det_res['class'].astype(str).isin(self.detected_label))
-            ]
-            detected_traffic_lights = tl_detections.to_dict('records')
-            print(f"Detected traffic lights by model: {detected_traffic_lights}")
-
-        # Check each traffic light in the scene
         for traffic_light in lights_list:
-            # Step 1: Check if this traffic light is detected by the model
-            is_detected = False
-            if detected_traffic_lights:
-                # Check if any detection corresponds to this traffic light
-                # This is a simplified check - you may need to match based on proximity/location
-                for detection in detected_traffic_lights:
-                    # Model detected something that could be this traffic light
-                    is_detected = True
-                    break
-            
-            # If model didn't detect it, skip this traffic light
-            if not is_detected and detected_traffic_lights:
-                continue
 
-            # Step 2: Get traffic light waypoint and check if it affects our lane (GT)
             if traffic_light.id in self._lights_map:
                 trigger_wp = self._lights_map[traffic_light.id]
             else:
@@ -191,29 +176,15 @@ class CustomAgent(BasicAgent):
             # Direction check (GT)
             ve_dir = ego_vehicle_waypoint.transform.get_forward_vector()
             wp_dir = trigger_wp.transform.get_forward_vector()
-            dot_ve_wp = ve_dir.x * wp_dir.x + ve_dir.y * wp_dir.y + ve_dir.z * wp_dir.z
+            dot = ve_dir.x * wp_dir.x + ve_dir.y * wp_dir.y + ve_dir.z * wp_dir.z
 
-            if dot_ve_wp < 0:
+            if dot < 0:
                 continue
 
-            # Step 3: Check if traffic light is red (DM)
-            # Check if model detected this as a red light
-            is_red_by_model = False
-            if detected_traffic_lights:
-                for detection in detected_traffic_lights:
-                    # Check if detection indicates red light
-                    if 'red' in str(detection.get('class', '')).lower():
-                        print("Traffic light detected as RED by model.")
-                        is_red_by_model = True
-                        break
-            
-            # # Also verify with ground truth state
-            # if traffic_light.state != carla.TrafficLightState.Red:
-            #     continue
-
-            # Step 4: If all checks pass, return the affected traffic light
+            # Stop-line + angle check
             if is_within_distance(trigger_wp.transform, self._vehicle.get_transform(), max_distance, [0, 90]):
                 self._last_traffic_light = traffic_light
+                print("Red light detected by DM → stopping")
                 return (True, traffic_light)
 
         return (False, None)
